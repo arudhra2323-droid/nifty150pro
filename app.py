@@ -93,4 +93,5 @@ def candles(symbol: str, bars: int = Query(120, ge=20, le=500)):
 
 
 FRONTEND = Path(__file__).resolve().parent.parent / "frontend"
-app.mount("/", StaticFiles(directory=FRONTEND, html=True), name="frontend")
+if FRONTEND.is_dir():
+    app.mount("/", StaticFiles(directory=FRONTEND, html=True), name="frontend")
