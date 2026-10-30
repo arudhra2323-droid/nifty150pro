@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nifty150 Pro</title>
+<style>
+:root{--bg:#0a1424;--panel:#101e33;--panel2:#15263f;--line:#22365a;--text:#e6edf7;--muted:#8ba0bf;
+--green:#22c55e;--teal:#2dd4bf;--red:#f43f5e;--amber:#f59e0b;--blue:#3b82f6}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif}
+a{color:var(--teal);text-decoration:none;cursor:pointer}
+header{display:flex;align-items:center;gap:16px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+header .brand{font-weight:700;font-size:18px}
+header .badge{padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700}
+.demo{background:var(--amber);color:#111}.live{background:var(--green);color:#052}
+nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav a{padding:6px 10px;border-radius:6px;color:var(--muted)}nav a.active,nav a:hover{background:var(--panel2);color:var(--text)}
+main{padding:18px;max-width:1280px;margin:0 auto}
+.grid{display:grid;gap:12px}.kpis{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.card h3{margin:0 0 8px;font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.big{font-size:26px;font-weight:700}
+.pos{color:var(--green)}.neg{color:var(--red)}.warn{color:var(--amber)}.muted{color:var(--muted)}
+.banner{border:1px solid var(--amber);background:rgba(245,158,11,.1);padding:10px 14px;border-radius:8px;margin-bottom:12px}
+.banner.info{border-color:var(--blue);background:rgba(59,130,246,.1)}
+table{width:100%;border-collapse:collapse}th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase}
+tr.click:hover{background:var(--panel2);cursor:pointer}
+.table-wrap{overflow-x:auto}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600}
+.p-ok{background:rgba(34,197,94,.15);color:var(--green)}.p-no{background:rgba(244,63,94,.15);color:var(--red)}
+.p-wait{background:rgba(245,158,11,.15);color:var(--amber)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:end;margin-bottom:12px}
+.row label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:4px}
+select,input{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:6px 8px}
+button{background:var(--teal);color:#042;border:0;border-radius:6px;padding:7px 12px;font-weight:600;cursor:pointer}
+button.ghost{background:var(--panel2);color:var(--text);border:1px solid var(--line)}
+details{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:10px;background:var(--panel)}
+summary{cursor:pointer;font-weight:600}
+ul{margin:6px 0 0 18px;padding:0}li{margin:3px 0}
+.stat{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px dashed var(--line)}
+.loading{color:var(--muted);padding:30px;text-align:center}
+.error{color:var(--red);padding:20px}
+.split{display:grid;grid-template-columns:2fr 1fr;gap:12px}
+@media(max-width:800px){.split{grid-template-columns:1fr}header{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Nifty150 Pro</div>
+  <span id="mode" class="badge demo">DEMO</span>
+  <span id="conn" class="muted" style="font-size:12px"></span>
+  <nav>
+    <a href="#/dashboard" data-r="dashboard">Dashboard</a>
+    <a href="#/screener" data-r="screener">Screener</a>
+    <a href="#/universe" data-r="universe">Universe</a>
+    <a href="#/strategies" data-r="strategies">Strategy Lab</a>
+  </nav>
+</header>
+<main id="app"><div class="loading">Loading…</div></main>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const fmt = {
+  n: (v, d = 2) => (v == null || isNaN(v)) ? "—" : Number(v).toLocaleString("en-IN", {maximumFractionDigits: d, minimumFractionDigits: d}),
+  pct: (v, d = 2) => (v == null || isNaN(v)) ? "—" : (v >= 0 ? "+" : "") + Number(v).toFixed(d) + "%",
+  prob: (v) => v == null ? "—" : (v * 100).toFixed(1) + "%",
+  inr: (v) => v == null ? "—" : "₹" + fmt.n(v),
+};
+const cls = (v) => v == null ? "muted" : v > 0 ? "pos" : v < 0 ? "neg" : "muted";
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function api(path, opts) {
+  const r = await fetch("/api" + path, opts);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.message || body.detail || `Request failed (${r.status})`);
+  return body;
+}
+
+function setStatus(st) {
+  const m = $("#mode");
+  m.textContent = st.mode; m.className = "badge " + (st.mode === "DEMO" ? "demo" : "live");
+  $("#conn").textContent = `Source: ${st.source} · Updated: ${st.last_successful_update || "—"}`;
+}
+
+function statusPill(row) {
+  if (row.qualifies) return `<span class="pill p-ok">Qualifies</span>`;
+  if (row.triggered && row.triggered.length) return `<span class="pill p-wait">Signal, not validated</span>`;
+  return `<span class="pill p-no">No signal</span>`;
+}
+
+function opportunityTable(rows) {
+  return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Stock</th><th>Price</th><th>Day</th>
+  <th>Strategy</th><th>Prob.</th><th>Exp. net</th><th>Entry</th><th>Target</th><th>Stop</th><th>R:R</th><th>Status</th></tr></thead><tbody>
+  ${rows.map((r, i) => {
+    const b = r.best, p = b.plan;
+    return `<tr class="click" onclick="location.hash='#/stock/${r.symbol}'">
+      <td>${r.rank ?? i + 1}</td>
+      <td><a href="#/stock/${r.symbol}">${esc(r.name)}</a><div class="muted">${r.symbol}</div></td>
+      <td>${fmt.inr(r.price)}</td><td class="${cls(r.change_pct)}">${fmt.pct(r.change_pct)}</td>
+      <td>${esc(b.strategy)}</td><td>${fmt.prob(p.probability)}</td>
+      <td class="${cls(p.expected_net_return_pct)}">${fmt.pct(p.expected_net_return_pct)}</td>
+      <td>${fmt.n(p.entry_zone[0])}–${fmt.n(p.entry_zone[1])}</td><td>${fmt.n(p.target)}</td>
+      <td class="neg">${fmt.n(p.stop)}</td><td>1:${fmt.n(p.rr_ratio, 1)}</td><td>${statusPill(r)}</td></tr>`;
+  }).join("")}</tbody></table></div>`;
+}
+
+// ---------- pages ----------
+async function pageDashboard() {
+  const d = await api("/dashboard");
+  setStatus({mode: d.mode, source: d.source, last_successful_update: d.as_of});
+  const vs = d.validation_summary;
+  const demoBanner = d.mode === "DEMO"
+    ? `<div class="banner">DEMO MODE: prices are synthetic. Probabilities cannot be validated, so no stock qualifies. Connect a market-data provider to validate strategies.</div>` : "";
+  const noOpp = d.top_opportunities.length ? "" :
+    `<div class="banner info"><b>No qualifying opportunities currently meet your requirements.</b><br>${esc(d.no_opportunity_reason)}</div>`;
+  const cand = d.candidates_unvalidated.length ? `
+    <div class="card"><h3>Signals awaiting validation (not recommendations)</h3>
+    <div class="table-wrap"><table><thead><tr><th>Stock</th><th>Strategy</th><th>Exp. net (unvalidated)</th><th>Status</th></tr></thead><tbody>
+    ${d.candidates_unvalidated.map(r => `<tr class="click" onclick="location.hash='#/stock/${r.symbol}'">
+      <td>${esc(r.name)} <span class="muted">${r.symbol}</span></td><td>${esc(r.best.strategy)}</td>
+      <td>${fmt.pct(r.best.plan.expected_net_return_pct)}</td><td>${esc(r.best.exclusion_reasons.join("; "))}</td></tr>`).join("")}
+    </tbody></table></div></div>` : "";
+  const movers = (list) => list.map(r => `<tr class="click" onclick="location.hash='#/stock/${r.symbol}'">
+    <td>${r.symbol}</td><td>${fmt.inr(r.price)}</td><td class="${cls(r.change_pct)}">${fmt.pct(r.change_pct)}</td></tr>`).join("");
+  $("#app").innerHTML = `
+    <h2 style="margin:0 0 4px">Dashboard</h2>
+    <div class="muted" style="margin-bottom:12px">Bullish swing-trading screen · horizon 2–15 sessions · default threshold ${fmt.prob(0.7)}</div>
+    ${demoBanner}
+    <div class="grid kpis" style="margin-bottom:12px">
+      <div class="card"><h3>Monitored</h3><div class="big">${d.total_monitored}</div><div class="muted">Demo sample of Nifty 150 universe</div></div>
+      <div class="card"><h3>Bullish / Neutral / Bearish</h3><div class="big"><span class="pos">${d.trend_counts.bullish}</span> / ${d.trend_counts.neutral} / <span class="neg">${d.trend_counts.bearish}</span></div></div>
+      <div class="card"><h3>Qualifying now</h3><div class="big">${d.qualifying_count}</div><div class="muted">Validated probability ≥ 70%</div></div>
+      <div class="card"><h3>Data status</h3><div class="big" style="font-size:18px">${d.mode}</div><div class="muted">As of ${esc(d.as_of)}</div></div>
+    </div>
+    ${noOpp}
+    <div class="card" style="margin-bottom:12px"><h3>Top 5 High-Probability Opportunities</h3>
+      ${d.top_opportunities.length ? opportunityTable(d.top_opportunities) : `<div class="muted">None shown. Fewer than five validated opportunities exist, and invented entries are never added.</div>`}
+    </div>
+    ${cand}
+    <div class="split" style="margin-top:12px">
+      <div class="card"><h3>Top gainers</h3><table><tbody>${movers(d.top_gainers)}</tbody></table></div>
+      <div class="card"><h3>Top losers</h3><table><tbody>${movers(d.top_losers)}</tbody></table></div>
+    </div>
+    <div class="card" style="margin-top:12px"><h3>Strategy validation</h3>
+      <div class="table-wrap"><table><thead><tr><th>Strategy</th><th>Status</th><th>OOS trades</th><th>OOS win rate</th></tr></thead><tbody>
+      ${Object.entries(vs).map(([k, v]) => `<tr><td><a href="#/strategies">${esc(k)}</a></td><td>${esc(v.status)}</td><td>${v.oos_trades}</td><td>${fmt.prob(v.probability)}</td></tr>`).join("")}
+      </tbody></table></div>
+      <div class="muted" style="margin-top:8px">News: ${esc(d.news.message)}</div>
+    </div>`;
+}
+
+async function pageScreener() {
+  const q = new URLSearchParams(location.hash.split("?")[1] || "");
+  const f = {sector: q.get("sector") || "", min_prob: q.get("min_prob") || "0", min_return: q.get("min_return") || "",
+             sort: q.get("sort") || "risk_adjusted_score", require_signal: q.get("require_signal") === "1", page: q.get("page") || "1"};
+  const sectors = [...new Set((await api("/universe")).map(u => u.sector))].sort();
+  const qs = new URLSearchParams({sort: f.sort, page: f.page, page_size: 10, include_excluded: true});
+  if (f.sector) qs.set("sector", f.sector);
+  if (f.min_prob && f.min_prob !== "0") qs.set("min_prob", (+f.min_prob) / 100);
+  if (f.min_return) qs.set("min_return", f.min_return);
+  if (f.require_signal) qs.set("require_signal", true);
+  const s = await api("/screener?" + qs);
+  setStatus(await api("/status"));
+  const pages = Math.max(1, Math.ceil(s.total / 10));
+  const link = (p) => `#/screener?` + new URLSearchParams({...Object.fromEntries(q), page: p}).toString();
+  $("#app").innerHTML = `
+    <h2 style="margin:0 0 12px">Stock Screener</h2>
+    <form class="row" onsubmit="event.preventDefault();applyScreener(this)">
+      <label>Sector<select name="sector"><option value="">All sectors</option>${sectors.map(x => `<option ${x === f.sector ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></label>
+      <label>Min probability (%)<input name="min_prob" type="number" min="0" max="100" value="${esc(f.min_prob)}"></label>
+      <label>Min expected net return (%)<input name="min_return" type="number" step="0.1" value="${esc(f.min_return)}"></label>
+      <label>Sort by<select name="sort">
+        ${[["risk_adjusted_score","Risk-adjusted score"],["probability","Probability"],["expected_net_return_pct","Expected net return"],["rr_ratio","Risk-to-reward"],["change_pct","Daily change"],["price","Price"]]
+          .map(([v, l]) => `<option value="${v}" ${v === f.sort ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label><span><input type="checkbox" name="require_signal" ${f.require_signal ? "checked" : ""}> Only stocks with a signal</span></label>
+      <button type="submit">Apply Filters</button>
+      <button type="button" class="ghost" onclick="location.hash='#/screener'">Reset</button>
+    </form>
+    <div class="muted" style="margin-bottom:8px">${s.total} matching · ${s.excluded_count} excluded (reasons below). Probability filter applies only where a probability exists; none exists in DEMO mode.</div>
+    <div class="card"><div class="table-wrap"><table><thead><tr><th>Stock</th><th>Sector</th><th>Price</th><th>Day</th><th>Strategy</th><th>Prob.</th><th>Exp. net</th><th>R:R</th><th>Score</th><th>Reasons</th></tr></thead><tbody>
+    ${s.results.map(r => `<tr class="click" onclick="location.hash='#/stock/${r.symbol}'">
+      <td><a href="#/stock/${r.symbol}">${esc(r.name)}</a> <span class="muted">${r.symbol}</span></td><td>${esc(r.sector)}</td>
+      <td>${fmt.inr(r.price)}</td><td class="${cls(r.change_pct)}">${fmt.pct(r.change_pct)}</td>
+      <td>${esc(r.strategy || "—")}</td><td>${fmt.prob(r.probability)}</td><td class="${cls(r.expected_net_return_pct)}">${fmt.pct(r.expected_net_return_pct)}</td>
+      <td>${r.rr_ratio ? "1:" + r.rr_ratio : "—"}</td><td>${fmt.n(r.risk_adjusted_score, 3)}</td><td class="muted">${esc(r.exclusion_reasons.join("; "))}</td></tr>`).join("") || `<tr><td colspan="10" class="muted">No stocks match these filters.</td></tr>`}
+    </tbody></table></div>
+    <div class="row" style="margin-top:10px"><span class="muted">Page ${s.page} of ${pages}</span>
+      ${s.page > 1 ? `<a href="${link(s.page - 1)}">← Prev</a>` : ""} ${s.page < pages ? `<a href="${link(s.page + 1)}">Next →</a>` : ""}</div></div>
+    <details><summary>Excluded stocks (${s.excluded_count})</summary><div class="table-wrap"><table><tbody>
+      ${(s.excluded || []).map(r => `<tr><td>${esc(r.name)}</td><td>${esc(r.exclusion_reasons.join("; "))}</td></tr>`).join("")}
+    </tbody></table></div></details>`;
+}
+
+function applyScreener(form) {
+  const d = new URLSearchParams(new FormData(form));
+  const params = new URLSearchParams();
+  for (const [k, v] of d) if (v) params.set(k, v);
+  if (form.require_signal.checked) params.set("require_signal", "1");
+  else params.delete("require_signal");
+  params.set("page", "1");
+  location.hash = "#/screener?" + params.toString();
+  if (location.hash.endsWith(params.toString())) route();
+}
+
+async function pageUniverse() {
+  const rows = await api("/universe");
+  setStatus(await api("/status"));
+  $("#app").innerHTML = `
+    <h2 style="margin:0 0 4px">Nifty 150 Universe</h2>
+    <div class="banner">Market-cap and fundamental scores need a connected provider and are shown as unavailable. The symbol list is a DEMO sample, not the official Nifty 150 constituent list.</div>
+    <div class="card"><div class="table-wrap"><table><thead><tr><th>Company</th><th>Symbol</th><th>Sector</th><th>Price</th><th>Day</th><th>Trend</th><th>Strategies</th><th>Status</th><th>Market cap</th><th>Data</th></tr></thead><tbody>
+    ${rows.map(r => `<tr class="click" onclick="location.hash='#/stock/${r.symbol}'">
+      <td>${esc(r.name)}</td><td>${r.symbol}</td><td>${esc(r.sector)}</td><td>${fmt.inr(r.price)}</td>
+      <td class="${cls(r.change_pct)}">${fmt.pct(r.change_pct)}</td><td>${esc(r.trend)}</td>
+      <td>${r.strategies.length ? esc(r.strategies.join(", ")) : "—"}</td><td>${statusPill(r)}</td>
+      <td class="muted">Needs provider</td><td class="muted">${esc(r.source)} · ${esc(r.last_candle)}</td></tr>`).join("")}
+    </tbody></table></div></div>`;
+}
+
+async function pageStrategies() {
+  const s = await api("/strategies");
+  setStatus(await api("/status"));
+  const st = (x) => x == null ? "—" : fmt.prob(x);
+  $("#app").innerHTML = `
+    <h2 style="margin:0 0 4px">Strategy Lab</h2>
+    <div class="muted" style="margin-bottom:12px">Strategies are ranked by historical evidence, not by name. Parameters were fixed before testing. Out-of-sample = last 40% of each symbol's history. Costs: ${"0.25"}% round trip.</div>
+    ${s.source === "demo" ? `<div class="banner">DEMO data: no strategy is validated. Results shown are synthetic and must not be used for decisions.</div>` : ""}
+    ${s.strategies.map(x => `<div class="card" style="margin-bottom:12px">
+      <div class="row" style="justify-content:space-between"><div><b style="font-size:16px">${esc(x.name)}</b> <span class="muted">v${x.version}</span></div>
+      <span class="pill ${x.status.startsWith("validated") ? "p-ok" : "p-wait"}">${esc(x.status.replace(/_/g, " "))}</span></div>
+      ${x.note ? `<div class="warn">${esc(x.note)}</div>` : `
+      <div class="split"><div>
+        <div class="stat"><span>Entry</span><span>${esc(x.entry)}</span></div>
+        <div class="stat"><span>Stop</span><span>${esc(x.stop)}</span></div>
+        <div class="stat"><span>Target</span><span>${esc(x.target)}</span></div>
+        <div class="stat"><span>Invalidation</span><span>${esc(x.invalidation)}</span></div>
+      </div><div>
+        <div class="stat"><span>Out-of-sample trades</span><span>${x.stats_out_of_sample.n}</span></div>
+        <div class="stat"><span>OOS win rate</span><span>${st(x.stats_out_of_sample.win_rate)}</span></div>
+        <div class="stat"><span>95% lower bound</span><span>${st(x.probability_lower95)}</span></div>
+        <div class="stat"><span>OOS expectancy (net)</span><span>${x.stats_out_of_sample.expectancy_net == null ? "—" : fmt.pct(x.stats_out_of_sample.expectancy_net * 100)}</span></div>
+        <div class="stat"><span>Profit factor</span><span>${fmt.n(x.stats_out_of_sample.profit_factor)}</span></div>
+        <div class="stat"><span>Max drawdown (sum of trades)</span><span>${x.stats_out_of_sample.max_drawdown == null ? "—" : fmt.n(x.stats_out_of_sample.max_drawdown * 100, 1) + "%"}</span></div>
+        <div class="stat"><span>In-sample trades / win rate</span><span>${x.stats_in_sample.n} / ${st(x.stats_in_sample.win_rate)}</span></div>
+      </div></div>`}
+    </div>`).join("")}`;
+}
+
+// ---------- stock page ----------
+function candleSvg(data, ema20) {
+  const W = 900, H = 320, P = 30;
+  const lo = Math.min(...data.map(d => d.low)), hi = Math.max(...data.map(d => d.high));
+  const x = (i) => P + i * (W - 2 * P) / data.length, w = Math.max(2, (W - 2 * P) / data.length * 0.6);
+  const y = (v) => P + (hi - v) * (H - 2 * P) / (hi - lo || 1);
+  const bars = data.map((d, i) => {
+    const up = d.close >= d.open, c = up ? "#22c55e" : "#f43f5e";
+    const top = y(Math.max(d.open, d.close)), bot = y(Math.min(d.open, d.close));
+    return `<line x1="${x(i) + w / 2}" x2="${x(i) + w / 2}" y1="${y(d.high)}" y2="${y(d.low)}" stroke="${c}"/>
+      <rect x="${x(i)}" y="${top}" width="${w}" height="${Math.max(1, bot - top)}" fill="${c}"/>`;
+  }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:var(--panel2);border-radius:8px">${bars}
+    <text x="4" y="${y(hi) + 4}" fill="#8ba0bf" font-size="11">${fmt.n(hi)}</text>
+    <text x="4" y="${y(lo) + 4}" fill="#8ba0bf" font-size="11">${fmt.n(lo)}</text></svg>`;
+}
+
+async function pageStock(symbol) {
+  const [e, candles] = await Promise.all([api(`/stocks/${symbol}/explanation`), api(`/stocks/${symbol}/candles?bars=120`)]);
+  setStatus(await api("/status"));
+  const p = e.trade_plan, pr = e.probability;
+  const ev = (rows) => `<div class="table-wrap"><table><thead><tr><th>Indicator</th><th>Actual reading</th><th>Interpretation</th><th>Contribution</th><th>Timeframe · source · as of</th></tr></thead><tbody>
+    ${rows.map(r => `<tr><td>${esc(r.indicator)}${r.calculation ? `<div class="muted" style="font-size:11px">${esc(r.calculation)}</div>` : ""}</td>
+      <td>${esc(r.reading)}</td><td style="white-space:normal">${esc(r.interpretation)}</td>
+      <td class="${r.contribution === "Positive" ? "pos" : r.contribution === "Negative" ? "neg" : "warn"}">${r.contribution}</td>
+      <td class="muted" style="font-size:12px">${esc(r.timeframe)} · ${esc(r.source)} · ${esc(r.last_candle)}</td></tr>`).join("")}</tbody></table></div>`;
+  $("#app").innerHTML = `
+    <a href="#/screener">← Back</a>
+    <div class="row" style="justify-content:space-between;margin-top:6px">
+      <div><h2 style="margin:0">${esc(e.name)} <span class="muted">${e.symbol}</span></h2>
+      <div class="muted">${esc(e.sector)} · ${fmt.inr(e.price)} <span class="${cls(e.change_pct)}">${fmt.pct(e.change_pct)}</span></div></div>
+      <span class="badge ${e.mode === "DEMO" ? "demo" : "live"}" style="padding:4px 8px;border-radius:4px;font-weight:700">${e.mode}</span>
+    </div>
+    <div class="banner ${e.decision_summary.startsWith("Qualifies") ? "info" : ""}"><b>Decision: ${esc(e.decision_summary)}</b> · explanation generated ${esc(e.generated_at)}</div>
+    <div class="card" style="margin-bottom:12px"><h3>Chart · daily (demo candles)</h3>${candleSvg(candles, null)}</div>
+    <div class="split">
+      <div>
+        <details open><summary>Why this stock was selected</summary><ul>${e.why_selected.map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>
+        <details open><summary>Technical evidence</summary>${ev(e.evidence.filter(x => !x.warning))}
+          ${e.evidence.filter(x => x.warning).map(x => `<div class="warn" style="margin-top:6px">${esc(x.indicator)}: ${esc(x.interpretation)}</div>`).join("")}</details>
+        <details open><summary>Strategy match</summary>${e.strategy_match.map(s => `
+          <div style="margin:8px 0"><b>${esc(s.name)}</b> <span class="muted">v${s.version}</span>
+          <span class="pill ${s.triggered ? "p-ok" : "p-no"}">${s.triggered ? "Triggered" : "Not triggered"}</span>
+          ${s.note ? `<div class="warn">${esc(s.note)}</div>` : `
+          <ul>${s.conditions_satisfied.map(c => `<li class="pos">✓ ${esc(c)}</li>`).join("")}
+          ${s.conditions_not_satisfied.map(c => `<li class="neg">✗ ${esc(c)}</li>`).join("")}</ul>
+          <div class="muted" style="font-size:12px">Entry: ${esc(s.entry_trigger)} · Stop: ${esc(s.stop_logic)} · Invalidation: ${esc(s.invalidation)}</div>`}</div>`).join("")}</details>
+        <details open><summary>Reasons not to trade / what could go wrong</summary>
+          <ul>${[...e.reasons_not_to_trade, ...e.what_could_go_wrong].map(x => `<li>${esc(x)}</li>`).join("")}</ul></details>
+      </div>
+      <div>
+        <div class="card" style="margin-bottom:12px"><h3>Probability of profit</h3>
+          <div class="big">${pr.value == null ? "Insufficient validation" : fmt.prob(pr.value)}</div>
+          <div class="muted" style="font-size:12px;margin-top:6px">${esc(pr.meaning)}</div>
+          <div class="stat"><span>Strategy</span><span>${esc(pr.strategy || "—")}</span></div>
+          <div class="stat"><span>Horizon</span><span>${pr.horizon_sessions} sessions</span></div>
+          <div class="stat"><span>OOS sample</span><span>${pr.sample_size_oos}</span></div>
+          <div class="stat"><span>Status</span><span>${esc(pr.validation_status.replace(/_/g, " "))}</span></div>
+          <div class="stat"><span>Costs included</span><span>${pr.costs_included ? "Yes" : "No"}</span></div>
+        </div>
+        <div class="card"><h3>Trade plan</h3>${p ? `
+          <div class="stat"><span>Reference close</span><span>${fmt.inr(p.reference_close)}</span></div>
+          <div class="stat"><span>Entry zone</span><span>${fmt.n(p.entry_zone[0])} – ${fmt.n(p.entry_zone[1])}</span></div>
+          <div class="stat"><span>Target</span><span class="pos">${fmt.n(p.target)}</span></div>
+          <div class="stat"><span>Stop-loss</span><span class="neg">${fmt.n(p.stop)} (${fmt.pct(p.stop_loss_pct)})</span></div>
+          <div class="stat"><span>Risk-to-reward</span><span>1:${fmt.n(p.rr_ratio, 1)}</span></div>
+          <div class="stat"><span>Expected net return</span><span class="${cls(p.expected_net_return_pct)}">${fmt.pct(p.expected_net_return_pct)}</span></div>
+          <div class="stat"><span>Avg hold (historical)</span><span>${fmt.n(p.hold_sessions_avg, 1)} sessions</span></div>
+          <div class="muted" style="font-size:12px;margin-top:6px">${esc(e.rank_method)}</div>
+          ` : `<div class="muted">No active signal, so no trade plan. Waiting for strategy rules to trigger.</div>`}
+        </div>
+      </div>
+    </div>
+    <div class="muted" style="font-size:12px;margin-top:12px">${esc(e.ai_narrative_note)} This is not financial advice and no return is guaranteed.</div>`;
+}
+
+// ---------- router ----------
+async function route() {
+  const hash = location.hash.replace(/^#\/?/, "").split("?")[0] || "dashboard";
+  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("active", a.dataset.r === hash.split("/")[0]));
+  $("#app").innerHTML = `<div class="loading">Loading…</div>`;
+  try {
+    const parts = hash.split("/");
+    if (parts[0] === "stock" && parts[1]) await pageStock(decodeURIComponent(parts[1]).toUpperCase());
+    else if (parts[0] === "screener") await pageScreener();
+    else if (parts[0] === "universe") await pageUniverse();
+    else if (parts[0] === "strategies") await pageStrategies();
+    else await pageDashboard();
+  } catch (err) {
+    $("#app").innerHTML = `<div class="error"><b>Could not load this page.</b><br>${esc(err.message)}<br>
+      <span class="muted">Check that the backend is running and MARKET_DATA_PROVIDER is configured.</span></div>`;
+  }
+}
+window.addEventListener("hashchange", route);
+route();
+</script>
+</body>
+</html>
